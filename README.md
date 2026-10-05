@@ -2,6 +2,8 @@
 
 **A local-first library for your AI conversation knowledge.**
 
+**English** | [日本語](./README_JA.md)
+
 LoreShelf is a desktop application for storing, searching, exploring, and continuing knowledge captured in [LoreSpec](https://github.com/lorespec-org/lorespec) (`LORE.md`).
 
 LoreSpec solves the problem of turning AI conversations into durable, structured knowledge.
