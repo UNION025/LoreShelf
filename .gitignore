@@ -1,0 +1,24 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Personal Lore (real conversation digests) stays local and is not published.
+# Tests use the synthetic files under samples/ instead.
+docx/
+
+# LoreShelf local index (rebuildable from the Lore library)
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.db
