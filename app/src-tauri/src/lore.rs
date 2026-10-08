@@ -38,11 +38,11 @@ pub struct LoreSummary {
     pub trails: Vec<String>,
     /// Set when the file could not be read or its frontmatter not parsed.
     pub error: Option<String>,
-    /// LoreSpec v0.1 findings (errors and warnings).
+    /// LoreSpec v0.1 findings (errors and warnings). They describe how well
+    /// the file follows the specification; they never keep it from loading.
     pub issues: Vec<Issue>,
-    /// False when the file violates LoreSpec. Rejected files must not be
-    /// opened or handed to the index.
-    pub accepted: bool,
+    /// False only when the file could not be read at all.
+    pub readable: bool,
 }
 
 /// Returns the YAML block between the leading `---` fences, if any.
@@ -61,10 +61,6 @@ pub fn read_body(path: &Path) -> Result<String, String> {
         return Err("Markdown(.md)以外のファイルは読み込めません".into());
     }
     let text = std::fs::read_to_string(path).map_err(|e| format!("読み込めません: {e}"))?;
-    let issues = validate::validate(&text);
-    if validate::has_errors(&issues) {
-        return Err("LoreSpec に違反しているため読み込みを拒否しました".into());
-    }
     let text = text.trim_start_matches('\u{feff}');
     let body = text
         .strip_prefix("---")
@@ -84,7 +80,8 @@ fn value_to_string(v: serde_yaml_ng::Value) -> Option<String> {
 }
 
 /// Checks a single file, whatever its name, as when the user imports it
-/// by hand. A file that violates LoreSpec comes back with `accepted: false`.
+/// by hand. A file that departs from LoreSpec is still loaded; the departures
+/// come back as `issues`.
 pub fn inspect(path: &Path) -> LoreSummary {
     summarize(path)
 }
@@ -101,36 +98,33 @@ fn summarize(path: &Path) -> LoreSummary {
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| path_str.clone());
 
-    let failed = |msg: String, issues: Vec<Issue>| LoreSummary {
-        path: path_str.clone(),
-        id: fallback_id.clone(),
-        date: None,
-        source: None,
-        topic: None,
-        tags: vec![],
-        kind: None,
-        value: None,
-        trails: vec![],
-        error: Some(msg),
-        issues,
-        accepted: false,
-    };
-
     let text = match std::fs::read_to_string(path) {
         Ok(t) => t,
-        Err(e) => return failed(format!("読み込めません: {e}"), vec![]),
+        Err(e) => {
+            return LoreSummary {
+                path: path_str,
+                id: fallback_id,
+                date: None,
+                source: None,
+                topic: None,
+                tags: vec![],
+                kind: None,
+                value: None,
+                trails: vec![],
+                error: Some(format!("読み込めません: {e}")),
+                issues: vec![],
+                readable: false,
+            }
+        }
     };
     let issues = validate::validate(&text);
-    let Some(yaml) = split_frontmatter(&text) else {
-        return failed("フロントマターが見つかりません".into(), issues);
-    };
-    let fm: Frontmatter = match serde_yaml_ng::from_str(yaml) {
-        Ok(fm) => fm,
-        Err(e) => return failed(format!("フロントマターを解析できません: {e}"), issues),
-    };
+    // Missing or broken frontmatter is reported in `issues`; the file still
+    // loads, with the file name standing in for the missing fields.
+    let fm: Frontmatter = split_frontmatter(&text)
+        .and_then(|yaml| serde_yaml_ng::from_str(yaml).ok())
+        .unwrap_or_default();
 
     let class = fm.classification.unwrap_or_default();
-    let accepted = !validate::has_errors(&issues);
     LoreSummary {
         path: path_str,
         id: fm.id.unwrap_or(fallback_id),
@@ -143,7 +137,7 @@ fn summarize(path: &Path) -> LoreSummary {
         trails: fm.trails,
         error: None,
         issues,
-        accepted,
+        readable: true,
     }
 }
 
@@ -189,10 +183,12 @@ mod tests {
         assert!(read_body(&renamed).is_ok());
         assert_eq!(inspect(&renamed).id, "s");
 
-        // A spec violation is refused, not displayed.
+        // A spec violation does not keep a file from loading; it is reported.
         std::fs::write(&lore, valid.replace("strategy", "nonsense")).unwrap();
-        assert!(read_body(&lore).is_err());
-        assert!(!inspect(&lore).accepted);
+        assert!(read_body(&lore).is_ok());
+        let item = inspect(&lore);
+        assert!(item.readable);
+        assert!(validate::has_errors(&item.issues));
 
         let other = dir.join("secret.txt");
         std::fs::write(&other, "x").unwrap();
@@ -201,11 +197,20 @@ mod tests {
     }
 
     #[test]
-    fn valid_sample_is_accepted() {
+    fn valid_samples_load_without_errors() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/valid/all-object-types.md");
         let item = inspect(&path);
-        assert!(item.accepted, "{:?} {:?}", item.issues, item.error);
+        assert!(item.readable, "{:?}", item.error);
         assert_eq!(item.id, "sample-all-object-types");
+        assert!(item.issues.is_empty(), "{:?}", item.issues);
+
+        // The official example's writing style is accepted too; its free-text
+        // qualifier only draws a warning.
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/valid/official-style.md");
+        let item = inspect(&path);
+        assert!(item.readable, "{:?}", item.error);
+        assert_eq!(item.id, "sample-official-style");
+        assert!(item.issues.iter().all(|i| i.severity == validate::Severity::Warning));
     }
 
     #[test]
@@ -224,20 +229,24 @@ mod tests {
     }
 
     #[test]
-    fn invalid_samples_are_rejected_for_the_intended_reason() {
+    fn invalid_samples_still_load_and_are_diagnosed_for_the_intended_reason() {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/invalid");
-        // (file, should be accepted, a fragment every run's messages must contain)
+        // (file, has errors, a fragment one of the messages must contain)
         let cases = [
+            // A free-text qualifier is a warning, as in the official example.
             ("translated-qualifier.md", false, "Qualifier"),
-            ("bad-connections.md", false, "causes"),
-            ("bad-enums-and-ids.md", false, "Origin"),
-            ("no-frontmatter.md", false, "フロントマター"),
-            ("unsupported-version.md", false, "未対応"),
-            ("warnings-only.md", true, "Warrant"),
+            ("bad-connections.md", true, "causes"),
+            ("bad-enums-and-ids.md", true, "Origin"),
+            ("mixed-up-enums.md", true, "provisional"),
+            ("no-frontmatter.md", true, "フロントマター"),
+            ("unsupported-version.md", true, "未対応"),
+            ("warnings-only.md", false, "Warrant"),
         ];
-        for (name, accepted, fragment) in cases {
+        for (name, has_errors, fragment) in cases {
             let item = inspect(&dir.join(name));
-            assert_eq!(item.accepted, accepted, "{name}: {:?}", item.issues);
+            // Every one of them loads; only the diagnosis differs.
+            assert!(item.readable, "{name}");
+            assert_eq!(validate::has_errors(&item.issues), has_errors, "{name}: {:?}", item.issues);
             assert!(
                 item.issues.iter().any(|i| i.message.contains(fragment)),
                 "{name}: no issue mentions {fragment}: {:?}",
@@ -247,6 +256,10 @@ mod tests {
         let broken = inspect(&dir.join("bad-connections.md"));
         assert!(broken.issues.iter().any(|i| i.message.contains("D99")));
         assert!(broken.issues.iter().any(|i| i.message.contains("書式")));
+        // Both mix-ups are reported: a value borrowed from another object type.
+        let mixed = inspect(&dir.join("mixed-up-enums.md"));
+        assert!(mixed.issues.iter().any(|i| i.message.contains("Status") && i.message.contains("provisional")));
+        assert!(mixed.issues.iter().any(|i| i.message.contains("Origin") && i.message.contains("research")));
         let dup = inspect(&dir.join("bad-enums-and-ids.md"));
         assert!(dup.issues.iter().any(|i| i.message.contains("重複")));
         assert!(dup.issues.iter().any(|i| i.message.contains("finalized")));
@@ -259,13 +272,34 @@ mod tests {
     fn check_file_from_env() {
         let path = std::env::var("LORESHELF_CHECK").expect("set LORESHELF_CHECK to a file path");
         let item = inspect(Path::new(&path));
-        println!("accepted: {}", item.accepted);
+        println!("readable: {}  has_errors: {}", item.readable, validate::has_errors(&item.issues));
         for issue in &item.issues {
             println!("{:?} line {}: {}", issue.severity, issue.line, issue.message);
         }
         if let Some(e) = &item.error {
             println!("error: {e}");
         }
+    }
+
+    #[test]
+    fn an_unreadable_file_is_reported_not_hidden() {
+        let item = inspect(Path::new("/no/such/dir/LORE.md"));
+        assert!(!item.readable);
+        assert!(item.error.is_some());
+    }
+
+    #[test]
+    fn a_file_without_frontmatter_still_gets_a_title_from_its_name() {
+        let dir = std::env::temp_dir().join("loreshelf-test-nofm");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("plain-notes.md");
+        std::fs::write(&f, "# just notes\n\nno frontmatter at all").unwrap();
+        let item = inspect(&f);
+        assert!(item.readable);
+        assert_eq!(item.id, "plain-notes");
+        assert!(validate::has_errors(&item.issues));
+        assert!(read_body(&f).unwrap().contains("just notes"));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
