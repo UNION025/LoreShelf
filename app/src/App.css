@@ -255,3 +255,133 @@ button.link {
   font-size: inherit;
   text-decoration: underline;
 }
+
+.search {
+  width: 100%;
+  margin-top: 14px;
+  padding: 8px 12px;
+  border: 1px solid #c8c8c8;
+  border-radius: 6px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  box-sizing: border-box;
+}
+
+.search:focus {
+  outline: none;
+  border-color: #396cd8;
+}
+
+.hit-snippet {
+  margin-top: 4px;
+  font-size: 13px;
+  color: #555;
+  overflow-wrap: anywhere;
+}
+
+mark {
+  padding: 0 1px;
+  border-radius: 2px;
+  background: #ffe58a;
+  color: inherit;
+}
+
+@media (prefers-color-scheme: dark) {
+  .search {
+    background: #3a3a3a;
+    border-color: #555;
+  }
+
+  .hit-snippet {
+    color: #bbb;
+  }
+
+  mark {
+    background: #6b5a14;
+  }
+}
+
+.held-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.modal {
+  width: min(560px, 100%);
+  max-height: 80vh;
+  overflow: auto;
+  padding: 18px 20px;
+  border-radius: 10px;
+  background: #fff;
+  color: #1f1f1f;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.modal h2 {
+  margin: 0 0 8px;
+  font-size: 17px;
+}
+
+.modal p {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.modal-list {
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.modal-list li {
+  padding: 8px 10px;
+  border: 1px solid #e3a79f;
+  border-radius: 6px;
+}
+
+.modal-list .more {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #888;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+button.primary {
+  border-color: #396cd8;
+  background: #396cd8;
+  color: #fff;
+}
+
+@media (prefers-color-scheme: dark) {
+  .modal {
+    background: #2f2f2f;
+    color: #f0f0f0;
+  }
+
+  .modal-list li {
+    border-color: #7a3b34;
+  }
+}
