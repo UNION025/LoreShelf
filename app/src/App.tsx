@@ -20,6 +20,16 @@ interface LoreSummary {
   readable: boolean;
 }
 
+type ImportOutcome = "imported" | "duplicate" | "already" | "new-version" | "failed";
+
+interface ImportResult {
+  source: string;
+  id: string;
+  outcome: ImportOutcome;
+  dest: string | null;
+  message: string;
+}
+
 interface Hit {
   path: string;
   id: string;
@@ -328,6 +338,61 @@ function ViolationDialog({
   );
 }
 
+const OUTCOME_LABEL: Record<ImportOutcome, string> = {
+  imported: "取り込みました",
+  "new-version": "別の版として取り込みました",
+  duplicate: "取り込みませんでした(同じ内容がすでにあります)",
+  already: "取り込みませんでした(すでにライブラリの中にあります)",
+  failed: "取り込めませんでした",
+};
+
+/** What happened to each file the user chose to import. */
+function ImportResultDialog({
+  results,
+  library,
+  onClose,
+}: {
+  results: ImportResult[];
+  library: string;
+  onClose: () => void;
+}) {
+  const imported = results.filter((r) => r.outcome === "imported" || r.outcome === "new-version").length;
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="import-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 id="import-title">取り込み結果(新しく保存したもの: {imported} 件)</h2>
+        <p>
+          ライブラリ(<span className="dup-id">{library}</span>)に、<code>〔ID〕/LORE.md</code>{" "}
+          の形で保存します。元のファイルは、そのまま残ります。上書きや削除はしません。
+        </p>
+        <ul className="modal-list dup-list">
+          {results.map((r) => (
+            <li key={r.source}>
+              <div className="lore-path">{r.source}</div>
+              <div className={r.outcome === "failed" ? "error" : "import-outcome"}>
+                {OUTCOME_LABEL[r.outcome]}
+              </div>
+              <div className="more">{r.message}</div>
+              {r.dest && r.outcome !== "failed" && <div className="more">{relativePath(library, r.dest)}</div>}
+            </li>
+          ))}
+        </ul>
+        <div className="modal-actions">
+          <button className="primary" onClick={onClose}>
+            閉じる
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 type FileState = "shown" | "hidden" | "waiting";
 
 /** Lists every file that shares an id, so the user can open one or hide the others. */
@@ -405,6 +470,7 @@ function App() {
   // Files the user hid, and the id whose files are being compared.
   const [hidden, setHidden] = useState<Set<string>>(loadHidden);
   const [duplicateId, setDuplicateId] = useState<string | null>(null);
+  const [importResults, setImportResults] = useState<ImportResult[] | null>(null);
 
   const scan = useCallback(async (target: string) => {
     try {
@@ -529,6 +595,18 @@ function App() {
     });
     if (!chosen) return;
     const paths = Array.isArray(chosen) ? chosen : [chosen];
+    if (dir) {
+      // With a library chosen, each file is filed there as <id>/LORE.md.
+      try {
+        setImportResults(await invoke<ImportResult[]>("import_files", { library: dir, paths }));
+        setError(null);
+        await scan(dir);
+      } catch (e) {
+        setError(String(e));
+      }
+      return;
+    }
+    // Without a library, the files are only listed from where they are.
     const next = Array.from(new Set([...importedPaths, ...paths]));
     saveImported(next);
     setImportedPaths(next);
@@ -556,6 +634,9 @@ function App() {
 
   return (
     <main className="container">
+      {importResults !== null && dir && (
+        <ImportResultDialog results={importResults} library={dir} onClose={() => setImportResults(null)} />
+      )}
       {duplicateId !== null && (
         <DuplicateDialog
           id={duplicateId}
@@ -587,7 +668,12 @@ function App() {
       <header className="toolbar">
         <h1>LoreShelf</h1>
         <button onClick={chooseFolder}>フォルダを選択</button>
-        <button onClick={importFiles}>ファイルをインポート</button>
+        <button
+          onClick={importFiles}
+          title={dir ? "選んだファイルを、ライブラリに ID/LORE.md の形で保存します" : "フォルダを選ぶと、ライブラリに整理して保存します"}
+        >
+          ファイルをインポート
+        </button>
         {(dir || importedPaths.length > 0) && <button onClick={reload}>再読み込み</button>}
       </header>
 
@@ -603,7 +689,10 @@ function App() {
       {error && <p className="error">{error}</p>}
 
       {!dir && importedPaths.length === 0 ? (
-        <p className="empty">Lore のフォルダを選択するか、ファイルをインポートしてください。</p>
+        <p className="empty">
+          Lore のフォルダ(ライブラリ)を選択してください。そのあと「ファイルをインポート」で、AIが出したファイルを、
+          名前に関係なく <code>ID/LORE.md</code> の形に整えて保存できます。
+        </p>
       ) : (
         <>
           <input

@@ -1,3 +1,4 @@
+mod import;
 mod index;
 mod lore;
 mod validate;
@@ -84,6 +85,20 @@ fn inspect_files(paths: Vec<String>) -> Vec<LoreSummary> {
     paths.iter().map(|p| lore::inspect(&PathBuf::from(p))).collect()
 }
 
+/// Files each chosen Lore into `library` as `<id>/LORE.md`. Sources are copied,
+/// never moved or overwritten (see `import`).
+#[tauri::command]
+async fn import_files(library: String, paths: Vec<String>) -> Result<Vec<import::ImportResult>, String> {
+    let library = PathBuf::from(library);
+    if !library.is_dir() {
+        return Err(format!("フォルダが見つかりません: {}", library.display()));
+    }
+    Ok(paths
+        .iter()
+        .map(|p| import::import_file(&library, &PathBuf::from(p)))
+        .collect())
+}
+
 #[tauri::command]
 fn read_lore(path: String) -> Result<String, String> {
     lore::read_body(&PathBuf::from(path))
@@ -94,7 +109,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![scan_library, inspect_files, read_lore, index_library, search_lore])
+        .invoke_handler(tauri::generate_handler![scan_library, inspect_files, import_files, read_lore, index_library, search_lore])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

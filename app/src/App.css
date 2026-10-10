@@ -441,3 +441,17 @@ button.badge.dup:hover {
     border-color: #555;
   }
 }
+
+.import-outcome {
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.modal code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(127, 127, 127, 0.2);
+  font-size: 0.9em;
+}
+
