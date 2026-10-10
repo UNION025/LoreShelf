@@ -107,6 +107,33 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../samples").join(rel)
     }
 
+    /// The prompts tell the AI to tag each Lore with the version of the prompts
+    /// that produced it, so every such tag must name the version stated at the top.
+    #[test]
+    fn prompts_version_tag_matches_the_stated_version() {
+        let doc = include_str!("../../../docs/PROMPTS.md");
+        let version = doc
+            .split("**版: ")
+            .nth(1)
+            .and_then(|rest| rest.split("**").next())
+            .expect("PROMPTS.md states its version as **版: x.y**");
+        let expected = version.replace('.', "-");
+        let mut checked = 0;
+        for part in doc.split("loreshelf-prompts-v").skip(1) {
+            let found: String = part
+                .chars()
+                .take_while(|c| c.is_ascii_digit() || *c == '-')
+                .collect();
+            let found = found.trim_end_matches('-');
+            if found.is_empty() {
+                continue; // prose that explains the tag, not a tag itself
+            }
+            assert_eq!(found, expected, "a prompt tag does not match the version {version}");
+            checked += 1;
+        }
+        assert!(checked >= 4, "expected the tag in sections 1, 2, 3 and the history");
+    }
+
     #[test]
     fn every_readable_file_is_indexed_whatever_its_structure() {
         let doc = indexable(&sample("valid/all-object-types.md")).expect("valid sample is indexed");
