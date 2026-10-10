@@ -7,7 +7,11 @@ use index::{Hit, Index, IndexDoc};
 use lore::LoreSummary;
 use serde::Serialize;
 use std::path::PathBuf;
+use std::sync::Mutex;
 use tauri::Manager;
+
+/// The index is one SQLite file; only one command may change or read it at a time.
+static INDEX_LOCK: Mutex<()> = Mutex::new(());
 
 /// Where the rebuildable index lives: `LORESHELF_DATA_DIR` if set (handy while
 /// debugging), otherwise the operating system's application data directory.
@@ -56,6 +60,7 @@ async fn index_library(app: tauri::AppHandle, paths: Vec<String>) -> Result<Inde
         .filter_map(|path| indexable(&PathBuf::from(path)))
         .collect();
     let skipped = paths.len() - docs.len();
+    let _guard = INDEX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let (mut index, db) = open_index(&app)?;
     let indexed = index.rebuild(&docs)?;
     Ok(IndexReport {
@@ -67,6 +72,7 @@ async fn index_library(app: tauri::AppHandle, paths: Vec<String>) -> Result<Inde
 
 #[tauri::command]
 async fn search_lore(app: tauri::AppHandle, query: String) -> Result<Vec<Hit>, String> {
+    let _guard = INDEX_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let (index, _) = open_index(&app)?;
     index.search(&query, 50)
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import ReactMarkdown from "react-markdown";
@@ -471,6 +471,8 @@ function App() {
   const [hidden, setHidden] = useState<Set<string>>(loadHidden);
   const [duplicateId, setDuplicateId] = useState<string | null>(null);
   const [importResults, setImportResults] = useState<ImportResult[] | null>(null);
+  // Index updates run one after another, in the order they were asked for.
+  const indexQueue = useRef<Promise<void>>(Promise.resolve());
 
   const scan = useCallback(async (target: string) => {
     try {
@@ -523,16 +525,24 @@ function App() {
   }, [importedPaths, inspect]);
 
   // Rebuild the search index from the files that are loaded. Files still
-  // waiting for the user's answer are not indexed.
+  // waiting for the user's answer are not indexed. The updates are queued so
+  // that a slow, older one can never finish after a newer one and overwrite
+  // it, and an update that has been superseded before it starts is skipped.
   const loadedKey = loaded.map((e) => e.item.path).join("\n");
   useEffect(() => {
     const paths = loadedKey ? loadedKey.split("\n") : [];
-    let cancelled = false;
-    invoke<IndexReport>("index_library", { paths })
-      .then((report) => !cancelled && setIndexReport(report))
-      .catch((e) => !cancelled && setError(String(e)));
+    let superseded = false;
+    indexQueue.current = indexQueue.current.then(async () => {
+      if (superseded) return;
+      try {
+        const report = await invoke<IndexReport>("index_library", { paths });
+        if (!superseded) setIndexReport(report);
+      } catch (e) {
+        if (!superseded) setError(String(e));
+      }
+    });
     return () => {
-      cancelled = true;
+      superseded = true;
     };
   }, [loadedKey]);
 
