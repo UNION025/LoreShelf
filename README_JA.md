@@ -266,3 +266,7 @@ LoreShelfはLoreSpecとは独立したプロジェクトであり、LoreSpecプ�
 ## License
 
 MIT License
+
+詳細は [LICENSE](LICENSE) を参照してください。
+
+LoreShelfは、同じくMITライセンスで公開されている [LoreSpec](https://github.com/lorespec-org/lorespec)(Copyright (c) 2026 LoreSpec Contributors)を基盤としています。[docs/PROMPTS.md](docs/PROMPTS.md) には、LoreSpecのScribeプロンプトを原文のまま、LoreSpecのライセンス表記とともに掲載しています。
