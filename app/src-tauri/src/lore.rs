@@ -23,6 +23,8 @@ struct Classification {
     #[serde(rename = "type")]
     kind: Option<String>,
     value: Option<String>,
+    #[serde(default)]
+    domains: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -35,6 +37,8 @@ pub struct LoreSummary {
     pub tags: Vec<String>,
     pub kind: Option<String>,
     pub value: Option<String>,
+    /// The subject areas (shelves) the Lore belongs to.
+    pub domains: Vec<String>,
     pub trails: Vec<String>,
     /// Set when the file could not be read or its frontmatter not parsed.
     pub error: Option<String>,
@@ -110,6 +114,7 @@ fn summarize(path: &Path) -> LoreSummary {
                 tags: vec![],
                 kind: None,
                 value: None,
+                domains: vec![],
                 trails: vec![],
                 error: Some(format!("読み込めません: {e}")),
                 issues: vec![],
@@ -134,6 +139,7 @@ fn summarize(path: &Path) -> LoreSummary {
         tags: fm.tags,
         kind: class.kind,
         value: class.value,
+        domains: class.domains,
         trails: fm.trails,
         error: None,
         issues,
@@ -300,6 +306,12 @@ mod tests {
         assert!(validate::has_errors(&item.issues));
         assert!(read_body(&f).unwrap().contains("just notes"));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn domains_are_read_from_the_classification() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/valid/all-object-types.md");
+        assert_eq!(inspect(&path).domains, vec!["testing"]);
     }
 
     #[test]
