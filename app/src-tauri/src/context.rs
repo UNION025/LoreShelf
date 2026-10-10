@@ -53,6 +53,10 @@ const PROMPTS_TAG_PREFIX: &str = "loreshelf-prompts-v";
 /// A model name can end in `-v` and a number too, so these are not versions.
 const MODEL_TAG_PREFIX: &str = "model-";
 
+/// Inside a model tag: `model-setting-high` records a run setting (such as how
+/// hard the model was set to think) rather than a model name.
+const SETTING_PREFIX: &str = "setting-";
+
 /// `example-game-v2-8` style tags: the subject, `-v`, then the version number.
 fn is_version_tag(tag: &str) -> bool {
     if tag.starts_with(PROMPTS_TAG_PREFIX) || tag.starts_with(MODEL_TAG_PREFIX) {
@@ -113,14 +117,19 @@ fn one(path: &Path, mode: Mode) -> Option<String> {
     if !item.domains.is_empty() {
         head.push_str(&format!("\n- 分野: {}", item.domains.join(", ")));
     }
-    let models: Vec<&str> = item
-        .tags
+    let model_tags: Vec<&str> = item.tags.iter().filter_map(|t| t.strip_prefix(MODEL_TAG_PREFIX)).collect();
+    let models: Vec<&str> = model_tags
         .iter()
-        .filter_map(|t| t.strip_prefix(MODEL_TAG_PREFIX))
-        .filter(|m| *m != "unknown")
+        .copied()
+        .filter(|m| *m != "unknown" && !m.starts_with(SETTING_PREFIX))
         .collect();
-    if !models.is_empty() {
-        head.push_str(&format!("\n- 作成したAI: {}", models.join(", ")));
+    let settings: Vec<&str> = model_tags.iter().filter_map(|m| m.strip_prefix(SETTING_PREFIX)).collect();
+    if !models.is_empty() || !settings.is_empty() {
+        let mut line = format!("\n- 作成したAI: {}", models.join(", "));
+        if !settings.is_empty() {
+            line.push_str(&format!("(設定: {})", settings.join(", ")));
+        }
+        head.push_str(&line);
     }
     let versions: Vec<&String> = item.tags.iter().filter(|t| is_version_tag(t)).collect();
     if !versions.is_empty() {
@@ -174,7 +183,7 @@ mod tests {
         for ok in ["example-game-v2-8", "app-v3", "a-v1-2-3"] {
             assert!(is_version_tag(ok), "{ok}");
         }
-        for bad in ["example-game", "version-2-8", "game-v", "game-vx", "-v2", "game-v2-", "very-good", "loreshelf-prompts-v0-5", "model-example-ai-v3"] {
+        for bad in ["example-game", "version-2-8", "game-v", "game-vx", "-v2", "game-v2-", "very-good", "loreshelf-prompts-v0-5", "model-example-ai-v3", "model-setting-v2"] {
             assert!(!is_version_tag(bad), "{bad}");
         }
     }
@@ -254,13 +263,17 @@ mod tests {
             .unwrap()
             .replace(
                 "tags: [sample, test-fixture]",
-                "tags: [example-game, example-game-v2-8, loreshelf-prompts-v0-5, model-example-ai-v3]",
+                "tags: [example-game, example-game-v2-8, loreshelf-prompts-v0-5, model-example-ai-v3, model-setting-high]",
             );
         std::fs::write(&f, text).unwrap();
         let b = build(&[f], Mode::Digest, false);
         assert!(b.text.contains("- 対象のバージョン: example-game-v2-8"), "{}", b.text);
         assert!(!b.text.contains("loreshelf-prompts"), "the prompts tag is not a subject version");
-        assert!(b.text.contains("- 作成したAI: example-ai-v3"), "the model is shown as the author: {}", b.text);
+        assert!(
+            b.text.contains("- 作成したAI: example-ai-v3(設定: high)"),
+            "the model is shown as the author, with its setting: {}",
+            b.text
+        );
         assert!(!b.text.contains("対象のバージョン: example-game-v2-8, model"), "a model tag is not a subject version");
         std::fs::remove_dir_all(&dir).ok();
     }
