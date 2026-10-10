@@ -455,3 +455,75 @@ button.badge.dup:hover {
   font-size: 0.9em;
 }
 
+.spacer {
+  flex: 1;
+}
+
+.shelves {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+button.chip {
+  padding: 3px 12px;
+  border-radius: 14px;
+  font-size: 12px;
+}
+
+button.chip.active {
+  border-color: #396cd8;
+  background: #396cd8;
+  color: #fff;
+}
+
+.copybar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: #555;
+}
+
+.copybar button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.copy-status {
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #e8f3e8;
+  color: #1f5f2a;
+  font-size: 13px;
+}
+
+.fallback-text {
+  width: 100%;
+  height: 260px;
+  margin-bottom: 12px;
+  padding: 8px;
+  border: 1px solid #c8c8c8;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  box-sizing: border-box;
+}
+
+@media (prefers-color-scheme: dark) {
+  .copybar {
+    color: #bbb;
+  }
+
+  .copy-status {
+    background: #26402b;
+    color: #bfe6c5;
+  }
+}
+

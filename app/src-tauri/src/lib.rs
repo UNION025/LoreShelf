@@ -1,3 +1,4 @@
+mod context;
 mod import;
 mod index;
 mod lore;
@@ -105,6 +106,14 @@ async fn import_files(library: String, paths: Vec<String>) -> Result<Vec<import:
         .collect())
 }
 
+/// Text for pasting into an AI conversation. `mode` is "full" or "digest".
+#[tauri::command]
+async fn build_context(paths: Vec<String>, mode: String, with_preface: bool) -> Result<context::Bundle, String> {
+    let mode = context::Mode::parse(&mode).ok_or_else(|| format!("不明な形式です: {mode}"))?;
+    let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+    Ok(context::build(&paths, mode, with_preface))
+}
+
 #[tauri::command]
 fn read_lore(path: String) -> Result<String, String> {
     lore::read_body(&PathBuf::from(path))
@@ -115,7 +124,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![scan_library, inspect_files, import_files, read_lore, index_library, search_lore])
+        .invoke_handler(tauri::generate_handler![scan_library, inspect_files, import_files, build_context, read_lore, index_library, search_lore])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

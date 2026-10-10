@@ -14,10 +14,20 @@ interface LoreSummary {
   tags: string[];
   kind: string | null;
   value: string | null;
+  domains: string[];
   trails: string[];
   error: string | null;
   issues: Issue[];
   readable: boolean;
+}
+
+type ContextMode = "full" | "digest";
+
+interface ContextBundle {
+  text: string;
+  files: number;
+  chars: number;
+  skipped: number;
 }
 
 type ImportOutcome = "imported" | "duplicate" | "already" | "new-version" | "failed";
@@ -171,7 +181,15 @@ function IssueList({ issues }: { issues: Issue[] }) {
   );
 }
 
-function LoreDetail({ item, onBack }: { item: LoreSummary; onBack: () => void }) {
+function LoreDetail({
+  item,
+  onBack,
+  onCopy,
+}: {
+  item: LoreSummary;
+  onBack: () => void;
+  onCopy: (mode: ContextMode) => void;
+}) {
   const [body, setBody] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -191,6 +209,13 @@ function LoreDetail({ item, onBack }: { item: LoreSummary; onBack: () => void })
     <>
       <header className="toolbar">
         <button onClick={onBack}>← 一覧に戻る</button>
+        <span className="spacer" />
+        <button onClick={() => onCopy("digest")} title="決定、未解決の問い、次の一手だけを、AIに貼る形でコピー">
+          決定と未解決だけをコピー
+        </button>
+        <button onClick={() => onCopy("full")} title="全文を、AIに貼る形でコピー">
+          全文をコピー
+        </button>
       </header>
       <h2 className="detail-title">{item.topic ?? item.id}</h2>
       <div className="lore-head">
@@ -393,6 +418,35 @@ function ImportResultDialog({
   );
 }
 
+/** Shown when the clipboard cannot be written: the text is there to copy by hand. */
+function CopyFallbackDialog({ text, onClose }: { text: string; onClose: () => void }) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="copy-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 id="copy-title">コピーできませんでした</h2>
+        <p>クリップボードに書き込めませんでした。下の文を、全部選んで、手でコピーしてください。</p>
+        <textarea
+          className="fallback-text"
+          readOnly
+          value={text}
+          onFocus={(e) => e.currentTarget.select()}
+        />
+        <div className="modal-actions">
+          <button className="primary" onClick={onClose}>
+            閉じる
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 type FileState = "shown" | "hidden" | "waiting";
 
 /** Lists every file that shares an id, so the user can open one or hide the others. */
@@ -471,6 +525,10 @@ function App() {
   const [hidden, setHidden] = useState<Set<string>>(loadHidden);
   const [duplicateId, setDuplicateId] = useState<string | null>(null);
   const [importResults, setImportResults] = useState<ImportResult[] | null>(null);
+  // The shelf (domain) the list is narrowed to, and the state of "copy for an AI".
+  const [domain, setDomain] = useState<string | null>(null);
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const [copyFallback, setCopyFallback] = useState<string | null>(null);
   // Index updates run one after another, in the order they were asked for.
   const indexQueue = useRef<Promise<void>>(Promise.resolve());
 
@@ -512,6 +570,21 @@ function App() {
   const shownEntries = entries.filter((e) => e.item.readable && !waiting.includes(e));
   const loaded = shownEntries.filter((e) => !hidden.has(e.item.path));
   const hiddenEntries = shownEntries.filter((e) => hidden.has(e.item.path));
+  // Shelves: the domains found in the loaded Lore, most used first.
+  const domainCounts = new Map<string, number>();
+  for (const e of loaded) {
+    for (const d of e.item.domains) domainCounts.set(d, (domainCounts.get(d) ?? 0) + 1);
+  }
+  const domainList = [...domainCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const activeDomain = domain !== null && domainCounts.has(domain) ? domain : null;
+  const inShelf = (e: { item: LoreSummary }) => activeDomain === null || e.item.domains.includes(activeDomain);
+  const shown = loaded.filter(inShelf);
+  const shownHits = hits.filter((h) => {
+    const entry = loaded.find((e) => e.item.path === h.path);
+    return entry !== undefined && inShelf(entry);
+  });
+  // What "copy for an AI" would take: the search results, or else the shelf in view.
+  const copyPaths = query.trim() ? shownHits.map((h) => h.path) : shown.map((e) => e.item.path);
   const idCounts = new Map<string, number>();
   for (const e of loaded) idCounts.set(e.item.id, (idCounts.get(e.item.id) ?? 0) + 1);
   const undecided = waiting.filter((e) => !held.has(e.item.path));
@@ -587,6 +660,33 @@ function App() {
     setHeld((prev) => new Set([...prev, ...items.map((i) => i.path)]));
   }
 
+  useEffect(() => {
+    if (!copyStatus) return;
+    const timer = setTimeout(() => setCopyStatus(null), 10000);
+    return () => clearTimeout(timer);
+  }, [copyStatus]);
+
+  /** Builds the text for an AI and puts it on the clipboard (or shows it to copy by hand). */
+  async function copyContext(paths: string[], mode: ContextMode) {
+    if (paths.length === 0) return;
+    try {
+      const bundle = await invoke<ContextBundle>("build_context", { paths, mode, withPreface: true });
+      try {
+        await navigator.clipboard.writeText(bundle.text);
+        const long = mode === "full" && bundle.chars > 40000;
+        setCopyStatus(
+          `${bundle.files} 件(約 ${bundle.chars.toLocaleString()} 文字)をコピーしました。AIの会話に貼り付けてください。` +
+            (long ? "長いので、AIによっては入りきりません。「決定と未解決だけをコピー」も試してください。" : "") +
+            (bundle.skipped > 0 ? `(読めなかったファイル ${bundle.skipped} 件は、含まれていません)` : ""),
+        );
+      } catch {
+        setCopyFallback(bundle.text);
+      }
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   async function chooseFolder() {
     const chosen = await open({ directory: true, title: "Lore フォルダを選択" });
     if (typeof chosen === "string") {
@@ -637,13 +737,24 @@ function App() {
   if (selected) {
     return (
       <main className="container">
-        <LoreDetail item={selected} onBack={() => setSelected(null)} />
+        <LoreDetail
+          item={selected}
+          onBack={() => setSelected(null)}
+          onCopy={(mode) => copyContext([selected.path], mode)}
+        />
+        {copyStatus && (
+          <p className="copy-status" role="status">
+            {copyStatus}
+          </p>
+        )}
+        {copyFallback !== null && <CopyFallbackDialog text={copyFallback} onClose={() => setCopyFallback(null)} />}
       </main>
     );
   }
 
   return (
     <main className="container">
+      {copyFallback !== null && <CopyFallbackDialog text={copyFallback} onClose={() => setCopyFallback(null)} />}
       {importResults !== null && dir && (
         <ImportResultDialog results={importResults} library={dir} onClose={() => setImportResults(null)} />
       )}
@@ -712,9 +823,51 @@ function App() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
+          {domainList.length > 0 && (
+            <div className="shelves" role="group" aria-label="分野(棚)で絞り込む">
+              <button
+                className={activeDomain === null ? "chip active" : "chip"}
+                onClick={() => setDomain(null)}
+              >
+                すべて ({loaded.length})
+              </button>
+              {domainList.map(([d, n]) => (
+                <button
+                  key={d}
+                  className={activeDomain === d ? "chip active" : "chip"}
+                  onClick={() => setDomain(activeDomain === d ? null : d)}
+                >
+                  {d} ({n})
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="copybar">
+            <span>AIに渡す({copyPaths.length} 件):</span>
+            <button
+              disabled={copyPaths.length === 0}
+              onClick={() => copyContext(copyPaths, "digest")}
+              title="決定、未解決の問い、次の一手だけを、AIに貼る形でコピー"
+            >
+              決定と未解決だけをコピー
+            </button>
+            <button
+              disabled={copyPaths.length === 0}
+              onClick={() => copyContext(copyPaths, "full")}
+              title="全文を、AIに貼る形でコピー"
+            >
+              全文をコピー
+            </button>
+          </div>
+          {copyStatus && (
+            <p className="copy-status" role="status">
+              {copyStatus}
+            </p>
+          )}
           <p className="count">
-            {query.trim() ? `${hits.length} 件ヒット / ` : ""}
-            {loaded.length} 件
+            {query.trim() ? `${shownHits.length} 件ヒット / ` : ""}
+            {activeDomain ? `${activeDomain}: ` : ""}
+            {shown.length} 件
             {waiting.length > 0 && ` ・ 保留 ${waiting.length} 件`}
             {hiddenEntries.length > 0 && ` ・ 非表示 ${hiddenEntries.length} 件`}
             {unreadable.length > 0 && ` ・ 読めなかったファイル ${unreadable.length} 件`}
@@ -741,7 +894,7 @@ function App() {
           )}
           {query.trim() ? (
             <ul className="lore-list">
-              {hits.map((hit) => {
+              {shownHits.map((hit) => {
                 const entry = loaded.find((e) => e.item.path === hit.path);
                 return (
                   <li
@@ -760,7 +913,7 @@ function App() {
             </ul>
           ) : (
             <ul className="lore-list">
-              {loaded.map(({ item, label }) => (
+              {shown.map(({ item, label }) => (
                 <LoreCard
                   key={item.path}
                   item={item}
