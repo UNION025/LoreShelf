@@ -385,3 +385,59 @@ button.primary {
     border-color: #7a3b34;
   }
 }
+
+button.badge.dup {
+  border: none;
+  background: #fdf1d8;
+  color: #9a6a00;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+button.badge.dup:hover {
+  background: #f8e3b0;
+}
+
+.dup-id {
+  margin: 0 0 8px;
+  color: #888;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.dup-list li {
+  border-color: #d8d8d8;
+}
+
+.dup-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.hidden-files {
+  margin-top: 20px;
+  font-size: 13px;
+  color: #777;
+}
+
+.hidden-files summary {
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  button.badge.dup {
+    background: #4a3b14;
+    color: #ffe9b0;
+  }
+
+  button.badge.dup:hover {
+    background: #5c4a1a;
+  }
+
+  .dup-list li {
+    border-color: #555;
+  }
+}

@@ -86,3 +86,9 @@ Lore C
 ```
 
 Semantic similarity does not create lineage.
+
+## License
+
+MIT License. See [LICENSE](LICENSE).
+
+LoreShelf builds on [LoreSpec](https://github.com/lorespec-org/lorespec), which is also released under the MIT License (Copyright (c) 2026 LoreSpec Contributors). [docs/PROMPTS.md](docs/PROMPTS.md) reproduces LoreSpec's Scribe prompt verbatim, together with LoreSpec's license notice.
