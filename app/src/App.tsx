@@ -30,6 +30,15 @@ interface ContextBundle {
   skipped: number;
 }
 
+type OutputLayout = "separate" | "parts" | "single";
+
+interface ExportResult {
+  dir: string;
+  files: string[];
+  chars: number;
+  skipped: number;
+}
+
 type ImportOutcome = "imported" | "duplicate" | "already" | "new-version" | "failed";
 
 interface ImportResult {
@@ -276,6 +285,8 @@ function LoreCard({
   item,
   label,
   duplicates,
+  picked,
+  onPick,
   onOpen,
   onShowDuplicates,
 }: {
@@ -283,12 +294,23 @@ function LoreCard({
   label: string;
   /** How many loaded files share this file's id (1 means it is unique). */
   duplicates: number;
+  /** Whether it is chosen for output. */
+  picked: boolean;
+  onPick: () => void;
   onOpen: () => void;
   onShowDuplicates: () => void;
 }) {
   return (
-    <li className="lore-item clickable" onClick={onOpen}>
+    <li className={picked ? "lore-item clickable picked" : "lore-item clickable"} onClick={onOpen}>
       <div className="lore-head">
+        <input
+          type="checkbox"
+          className="pick"
+          checked={picked}
+          title="出力(AIに渡す)に含める"
+          onClick={(e) => e.stopPropagation()}
+          onChange={onPick}
+        />
         <span className="lore-date">{item.date ?? "日付なし"}</span>
         {item.kind && <span className="badge">{item.kind}</span>}
         {item.value && <span className="badge">価値: {item.value}</span>}
@@ -477,6 +499,127 @@ function CopyFallbackDialog({ text, onClose }: { text: string; onClose: () => vo
   );
 }
 
+/** Settings for handing Lore to another chat: the form, the task, and copy or files. */
+function OutputDialog({
+  count,
+  onCopy,
+  onExport,
+  onClose,
+}: {
+  count: number;
+  onCopy: (mode: ContextMode, task: string) => void;
+  onExport: (mode: ContextMode, layout: OutputLayout, task: string, limit: number) => void;
+  onClose: () => void;
+}) {
+  const [mode, setMode] = useState<ContextMode>("digest");
+  const [layout, setLayout] = useState<OutputLayout>("separate");
+  const [task, setTask] = useState("");
+  const [limit, setLimit] = useState(30000);
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="output-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 id="output-title">他のチャットに渡す({count} 件)</h2>
+        <fieldset className="opt">
+          <legend>渡す内容</legend>
+          <label>
+            <input type="radio" checked={mode === "digest"} onChange={() => setMode("digest")} />
+            決定と未解決だけ(短い)
+          </label>
+          <label>
+            <input type="radio" checked={mode === "full"} onChange={() => setMode("full")} />
+            全文
+          </label>
+        </fieldset>
+        <label className="opt-field">
+          今回やりたいこと(任意。先頭に添えます)
+          <textarea
+            className="task-text"
+            value={task}
+            onChange={(e) => setTask(e.target.value)}
+            placeholder="例: この続きから、〇〇の設計を詰めたい"
+          />
+        </label>
+        <div className="opt-row">
+          <button className="primary" onClick={() => onCopy(mode, task)}>
+            クリップボードにコピー
+          </button>
+        </div>
+        <fieldset className="opt">
+          <legend>ファイルとして書き出す(チャットに添付する)</legend>
+          <label>
+            <input type="radio" checked={layout === "separate"} onChange={() => setLayout("separate")} />
+            Loreごとに別々のファイル(README付き)
+          </label>
+          <label>
+            <input type="radio" checked={layout === "parts"} onChange={() => setLayout("parts")} />
+            大きさで分け、part1、part2…にする
+          </label>
+          <label>
+            <input type="radio" checked={layout === "single"} onChange={() => setLayout("single")} />
+            1つのファイルにまとめる
+          </label>
+          {layout === "parts" && (
+            <label className="opt-field">
+              1パートの大きさ(文字数。AIの入力の上限に合わせます)
+              <input
+                type="number"
+                min={1000}
+                step={1000}
+                value={limit}
+                onChange={(e) => setLimit(Math.max(1000, Number(e.target.value) || 30000))}
+              />
+            </label>
+          )}
+        </fieldset>
+        <div className="opt-row">
+          <button onClick={() => onExport(mode, layout, task, limit)}>書き出す(フォルダを選ぶ)</button>
+          <button onClick={onClose}>閉じる</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Where the files were written, and what to do with them. */
+function ExportResultDialog({ result, onClose }: { result: ExportResult; onClose: () => void }) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="export-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 id="export-title">書き出しました({result.files.length} ファイル、約 {result.chars.toLocaleString()} 文字)</h2>
+        <p>
+          次のフォルダに、新しく作りました。既存のファイルは、変えていません。
+          <br />
+          <span className="dup-id">{result.dir}</span>
+        </p>
+        <ul className="modal-list dup-list">
+          {result.files.map((f) => (
+            <li key={f}>{f}</li>
+          ))}
+        </ul>
+        <p>新しいチャットに、<code>00-README.md</code> を含めて、これらのファイルを添付してください。</p>
+        {result.skipped > 0 && <p className="error">読めなかったファイル {result.skipped} 件は、含まれていません。</p>}
+        <div className="modal-actions">
+          <button className="primary" onClick={onClose}>
+            閉じる
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 type FileState = "shown" | "hidden" | "waiting";  // waiting: not loaded (rejected, or not yet answered)
 
 /** Lists every file that shares an id, so the user can open one or hide the others. */
@@ -559,6 +702,10 @@ function App() {
   const [domain, setDomain] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const [copyFallback, setCopyFallback] = useState<string | null>(null);
+  // The Lore chosen for output, the output settings screen, and what a file export wrote.
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [outputOpen, setOutputOpen] = useState(false);
+  const [exportResult, setExportResult] = useState<ExportResult | null>(null);
   // Index updates run one after another, in the order they were asked for.
   const indexQueue = useRef<Promise<void>>(Promise.resolve());
 
@@ -614,7 +761,13 @@ function App() {
     return entry !== undefined && inShelf(entry);
   });
   // What "copy for an AI" would take: the search results, or else the shelf in view.
-  const copyPaths = query.trim() ? shownHits.map((h) => h.path) : shown.map((e) => e.item.path);
+  const pickedPaths = loaded.filter((e) => picked.has(e.item.path)).map((e) => e.item.path);
+  const copyPaths =
+    pickedPaths.length > 0
+      ? pickedPaths
+      : query.trim()
+        ? shownHits.map((h) => h.path)
+        : shown.map((e) => e.item.path);
   const idCounts = new Map<string, number>();
   for (const e of loaded) idCounts.set(e.item.id, (idCounts.get(e.item.id) ?? 0) + 1);
   // A rejection holds until the file's errors change, like an agreement does.
@@ -702,10 +855,10 @@ function App() {
   }, [copyStatus]);
 
   /** Builds the text for an AI and puts it on the clipboard (or shows it to copy by hand). */
-  async function copyContext(paths: string[], mode: ContextMode) {
+  async function copyContext(paths: string[], mode: ContextMode, task = "") {
     if (paths.length === 0) return;
     try {
-      const bundle = await invoke<ContextBundle>("build_context", { paths, mode, withPreface: true });
+      const bundle = await invoke<ContextBundle>("build_context", { paths, mode, withPreface: true, task });
       try {
         await navigator.clipboard.writeText(bundle.text);
         const long = mode === "full" && bundle.chars > 40000;
@@ -720,6 +873,34 @@ function App() {
     } catch (e) {
       setError(String(e));
     }
+  }
+
+  /** Writes the chosen Lore as files into a new folder under one the user picks. */
+  async function exportContext(paths: string[], mode: ContextMode, layout: OutputLayout, task: string, limit: number) {
+    const dest = await open({ directory: true, title: "書き出し先のフォルダを選択(この中に、新しいフォルダを作ります)" });
+    if (typeof dest !== "string") return;
+    try {
+      const result = await invoke<ExportResult>("export_context", {
+        paths,
+        mode,
+        layout,
+        task,
+        dest,
+        partLimit: limit,
+      });
+      setOutputOpen(false);
+      setExportResult(result);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  function togglePick(path: string) {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(path)) next.add(path);
+      return next;
+    });
   }
 
   // Files are often moved or deleted outside the application, so the list is
@@ -804,6 +985,18 @@ function App() {
   return (
     <main className="container">
       {copyFallback !== null && <CopyFallbackDialog text={copyFallback} onClose={() => setCopyFallback(null)} />}
+      {outputOpen && (
+        <OutputDialog
+          count={copyPaths.length}
+          onCopy={(mode, task) => {
+            setOutputOpen(false);
+            copyContext(copyPaths, mode, task);
+          }}
+          onExport={(mode, layout, task, limit) => exportContext(copyPaths, mode, layout, task, limit)}
+          onClose={() => setOutputOpen(false)}
+        />
+      )}
+      {exportResult !== null && <ExportResultDialog result={exportResult} onClose={() => setExportResult(null)} />}
       {importResults !== null && dir && (
         <ImportResultDialog results={importResults} library={dir} onClose={() => setImportResults(null)} />
       )}
@@ -892,7 +1085,11 @@ function App() {
             </div>
           )}
           <div className="copybar">
-            <span>AIに渡す({copyPaths.length} 件):</span>
+            <span>
+              AIに渡す({copyPaths.length} 件{pickedPaths.length > 0 ? "・選択中" : ""}):
+            </span>
+            <button onClick={() => setPicked(new Set(shown.map((e) => e.item.path)))}>すべて選択</button>
+            {pickedPaths.length > 0 && <button onClick={() => setPicked(new Set())}>選択を解除</button>}
             <button
               disabled={copyPaths.length === 0}
               onClick={() => copyContext(copyPaths, "digest")}
@@ -906,6 +1103,9 @@ function App() {
               title="全文を、AIに貼る形でコピー"
             >
               全文をコピー
+            </button>
+            <button disabled={copyPaths.length === 0} onClick={() => setOutputOpen(true)}>
+              出力(設定・ファイル)…
             </button>
           </div>
           {copyStatus && (
@@ -968,6 +1168,8 @@ function App() {
                   item={item}
                   label={label}
                   duplicates={idCounts.get(item.id) ?? 1}
+                  picked={picked.has(item.path)}
+                  onPick={() => togglePick(item.path)}
                   onOpen={() => setSelected(item)}
                   onShowDuplicates={() => setDuplicateId(item.id)}
                 />

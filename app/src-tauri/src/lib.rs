@@ -108,10 +108,33 @@ async fn import_files(library: String, paths: Vec<String>) -> Result<Vec<import:
 
 /// Text for pasting into an AI conversation. `mode` is "full" or "digest".
 #[tauri::command]
-async fn build_context(paths: Vec<String>, mode: String, with_preface: bool) -> Result<context::Bundle, String> {
+async fn build_context(
+    paths: Vec<String>,
+    mode: String,
+    with_preface: bool,
+    task: Option<String>,
+) -> Result<context::Bundle, String> {
     let mode = context::Mode::parse(&mode).ok_or_else(|| format!("不明な形式です: {mode}"))?;
     let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
-    Ok(context::build(&paths, mode, with_preface))
+    Ok(context::build_with_task(&paths, mode, with_preface, task.as_deref().unwrap_or("")))
+}
+
+/// Writes the chosen Lore as files into a new folder under `dest`, for attaching to
+/// another chat. `layout` is "separate", "parts" or "single"; `part_limit` is the
+/// size of a part in characters. Existing files are never touched.
+#[tauri::command]
+async fn export_context(
+    paths: Vec<String>,
+    mode: String,
+    layout: String,
+    task: String,
+    dest: String,
+    part_limit: usize,
+) -> Result<context::ExportResult, String> {
+    let mode = context::Mode::parse(&mode).ok_or_else(|| format!("不明な形式です: {mode}"))?;
+    let layout = context::Layout::parse(&layout).ok_or_else(|| format!("不明な出力の形です: {layout}"))?;
+    let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+    context::export(&paths, mode, layout, &task, &PathBuf::from(dest), part_limit)
 }
 
 #[tauri::command]
@@ -124,7 +147,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![scan_library, inspect_files, import_files, build_context, read_lore, index_library, search_lore])
+        .invoke_handler(tauri::generate_handler![scan_library, inspect_files, import_files, build_context, export_context, read_lore, index_library, search_lore])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
