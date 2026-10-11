@@ -204,10 +204,13 @@ function LoreDetail({
   item,
   onBack,
   onCopy,
+  onRefresh,
 }: {
   item: LoreSummary;
   onBack: () => void;
   onCopy: (mode: ContextMode) => void;
+  /** Re-reads the library and returns to the list, for when the file has gone. */
+  onRefresh: () => void;
 }) {
   const [body, setBody] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -251,7 +254,14 @@ function LoreDetail({
           <IssueList issues={item.issues} />
         </details>
       )}
-      {error && <p className="error">{error}</p>}
+      {error && (
+        <p className="error">
+          {error}{" "}
+          <button className="link" onClick={onRefresh}>
+            一覧を再読み込みして戻る
+          </button>
+        </p>
+      )}
       {body === null && !error && <p className="count">読み込み中…</p>}
       {body !== null && (
         <article className="markdown">
@@ -712,6 +722,20 @@ function App() {
     }
   }
 
+  // Files are often moved or deleted outside the application, so the list is
+  // refreshed whenever the window comes back to the front.
+  const lastRefresh = useRef(0);
+  useEffect(() => {
+    function onFocus() {
+      if (Date.now() - lastRefresh.current < 3000) return;
+      lastRefresh.current = Date.now();
+      if (dir) scan(dir);
+      inspect(importedPaths);
+    }
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [dir, importedPaths, scan, inspect]);
+
   async function chooseFolder() {
     const chosen = await open({ directory: true, title: "Lore フォルダを選択" });
     if (typeof chosen === "string") {
@@ -765,6 +789,7 @@ function App() {
           item={selected}
           onBack={() => setSelected(null)}
           onCopy={(mode) => copyContext([selected.path], mode)}
+          onRefresh={reload}
         />
         {copyStatus && (
           <p className="copy-status" role="status">

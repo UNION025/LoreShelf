@@ -49,6 +49,19 @@ pub struct LoreSummary {
     pub readable: bool,
 }
 
+/// The message for a file that could not be read. A file that is simply gone
+/// (moved or deleted outside the application) says so and how to recover.
+pub fn read_error(path: &Path, e: &std::io::Error) -> String {
+    if e.kind() == std::io::ErrorKind::NotFound {
+        format!(
+            "ファイルが見つかりません。移動または削除された可能性があります。一覧を再読み込みしてください: {}",
+            path.display()
+        )
+    } else {
+        format!("読み込めません: {e}")
+    }
+}
+
 /// Returns the YAML block between the leading `---` fences, if any.
 fn split_frontmatter(text: &str) -> Option<&str> {
     let text = text.trim_start_matches('\u{feff}').trim_start();
@@ -64,7 +77,7 @@ pub fn read_body(path: &Path) -> Result<String, String> {
     if path.extension().map_or(true, |e| e != "md") {
         return Err("Markdown(.md)以外のファイルは読み込めません".into());
     }
-    let text = std::fs::read_to_string(path).map_err(|e| format!("読み込めません: {e}"))?;
+    let text = std::fs::read_to_string(path).map_err(|e| read_error(path, &e))?;
     let text = text.trim_start_matches('\u{feff}').trim_start();
     let body = text
         .strip_prefix("---")
@@ -116,7 +129,7 @@ fn summarize(path: &Path) -> LoreSummary {
                 value: None,
                 domains: vec![],
                 trails: vec![],
-                error: Some(format!("読み込めません: {e}")),
+                error: Some(read_error(path, &e)),
                 issues: vec![],
                 readable: false,
             }
@@ -329,6 +342,17 @@ mod tests {
         assert!(!validate::has_errors(&item.issues), "{:?}", item.issues);
         assert!(read_body(&f).unwrap().starts_with("## Session Arc"));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_file_that_has_gone_says_so_and_how_to_recover() {
+        let gone = Path::new("/no/such/dir/LORE.md");
+        let msg = read_body(gone).unwrap_err();
+        assert!(msg.contains("見つかりません") && msg.contains("再読み込み"), "{msg}");
+        assert!(!msg.contains("os error"), "the raw system error is not shown: {msg}");
+        let item = inspect(gone);
+        assert!(!item.readable);
+        assert!(item.error.unwrap().contains("見つかりません"));
     }
 
     #[test]
