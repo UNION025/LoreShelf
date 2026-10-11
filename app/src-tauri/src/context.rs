@@ -53,6 +53,9 @@ const PROMPTS_TAG_PREFIX: &str = "loreshelf-prompts-v";
 /// A model name can end in `-v` and a number too, so these are not versions.
 const MODEL_TAG_PREFIX: &str = "model-";
 
+/// A tag that says a subject's version is not known: `alexa-version-unknown`.
+const VERSION_UNKNOWN_SUFFIX: &str = "-version-unknown";
+
 /// Inside a model tag: `model-setting-high` records a run setting (such as how
 /// hard the model was set to think) rather than a model name.
 const SETTING_PREFIX: &str = "setting-";
@@ -74,7 +77,7 @@ fn is_version_tag(tag: &str) -> bool {
 
 /// The text after the frontmatter.
 fn body_of(text: &str) -> &str {
-    let text = text.trim_start_matches('\u{feff}');
+    let text = text.trim_start_matches('\u{feff}').trim_start();
     text.strip_prefix("---")
         .and_then(|rest| rest.find("\n---").map(|i| &rest[i + 4..]))
         .unwrap_or(text)
@@ -131,6 +134,12 @@ fn one(path: &Path, mode: Mode) -> Option<String> {
         }
         head.push_str(&line);
     }
+    let unknown_versions: Vec<&str> = item
+        .tags
+        .iter()
+        .filter_map(|t| t.strip_suffix(VERSION_UNKNOWN_SUFFIX))
+        .filter(|name| !name.is_empty())
+        .collect();
     let versions: Vec<&String> = item.tags.iter().filter(|t| is_version_tag(t)).collect();
     if !versions.is_empty() {
         head.push_str(&format!(
@@ -138,8 +147,11 @@ fn one(path: &Path, mode: Mode) -> Option<String> {
             versions.iter().map(|v| v.as_str()).collect::<Vec<_>>().join(", ")
         ));
     }
+    if !unknown_versions.is_empty() {
+        head.push_str(&format!("\n- バージョンが不明の対象: {}", unknown_versions.join(", ")));
+    }
     let body = match mode {
-        Mode::Full => text.trim_start_matches('\u{feff}').trim_end().to_string(),
+        Mode::Full => text.trim_start_matches('\u{feff}').trim().to_string(),
         Mode::Digest => {
             let kept = sections(body_of(&text), KEPT_SECTIONS);
             if kept.trim().is_empty() {
@@ -252,6 +264,27 @@ mod tests {
                 println!("{}", b.text);
             }
         }
+    }
+
+    #[test]
+    fn a_subject_whose_version_is_unknown_is_named_in_the_heading() {
+        assert!(!is_version_tag("alexa-version-unknown"));
+        assert!(!is_version_tag("echo-dot-gen3"));
+        let dir = std::env::temp_dir().join("loreshelf-test-unknown-version");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("LORE.md");
+        let text = std::fs::read_to_string(sample("valid/all-object-types.md"))
+            .unwrap()
+            .replace(
+                "tags: [sample, test-fixture]",
+                "tags: [echo-dot-gen3, alexa-version-unknown, gig-performer-v5]",
+            );
+        std::fs::write(&f, text).unwrap();
+        let b = build(&[f], Mode::Digest, false);
+        assert!(b.text.contains("- バージョンが不明の対象: alexa"), "{}", b.text);
+        assert!(b.text.contains("- 対象のバージョン: gig-performer-v5"), "{}", b.text);
+        assert!(!b.text.contains("echo-dot"), "a hardware generation is not a version: {}", b.text);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

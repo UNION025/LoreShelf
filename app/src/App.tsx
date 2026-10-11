@@ -63,6 +63,7 @@ const LIBRARY_KEY = "loreshelf.libraryDir";
 const IMPORTED_KEY = "loreshelf.importedFiles";
 const ALLOWED_KEY = "loreshelf.allowedViolations";
 const HIDDEN_KEY = "loreshelf.hiddenFiles";
+const REJECTED_KEY = "loreshelf.rejectedFiles";
 
 function loadSavedDir(): string | null {
   try {
@@ -110,6 +111,24 @@ function loadAllowed(): Record<string, string> {
 function saveAllowed(allowed: Record<string, string>) {
   try {
     localStorage.setItem(ALLOWED_KEY, JSON.stringify(allowed));
+  } catch {
+    // Convenience only; the question is simply asked again next time.
+  }
+}
+
+/** Files the user declined to load despite errors: path -> the errors they declined. */
+function loadRejected(): Record<string, string> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(REJECTED_KEY) ?? "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveRejected(rejected: Record<string, string>) {
+  try {
+    localStorage.setItem(REJECTED_KEY, JSON.stringify(rejected));
   } catch {
     // Convenience only; the question is simply asked again next time.
   }
@@ -298,8 +317,8 @@ function UnreadableCard({ item, label }: { item: LoreSummary; label: string }) {
   );
 }
 
-/** A file held back because of errors: why, and a way to load it anyway. */
-function HeldCard({
+/** A file the user rejected because of errors: why, and a way to load it after all. */
+function RejectedCard({
   item,
   label,
   onLoad,
@@ -323,11 +342,11 @@ function HeldCard({
 function ViolationDialog({
   entries,
   onLoadAll,
-  onHold,
+  onReject,
 }: {
   entries: { item: LoreSummary; label: string }[];
   onLoadAll: () => void;
-  onHold: () => void;
+  onReject: () => void;
 }) {
   const SHOWN = 3;
   return (
@@ -337,6 +356,7 @@ function ViolationDialog({
         <p>
           {entries.length} 件のファイルにエラーがあります。このまま読み込むと、構造を使う機能
           (項目での絞り込みなど)で、正しく扱えない部分が出ることがあります。読み込みますか?
+          却下すると一覧に出ず、あとから「却下したファイル」で、読み込むこともできます(ファイルは消えません)。
         </p>
         <ul className="modal-list">
           {entries.map(({ item, label }) => {
@@ -353,7 +373,7 @@ function ViolationDialog({
           })}
         </ul>
         <div className="modal-actions">
-          <button onClick={onHold}>読み込まない(保留にする)</button>
+          <button onClick={onReject}>却下する</button>
           <button className="primary" onClick={onLoadAll}>
             すべて読み込む
           </button>
@@ -447,7 +467,7 @@ function CopyFallbackDialog({ text, onClose }: { text: string; onClose: () => vo
   );
 }
 
-type FileState = "shown" | "hidden" | "waiting";
+type FileState = "shown" | "hidden" | "waiting";  // waiting: not loaded (rejected, or not yet answered)
 
 /** Lists every file that shares an id, so the user can open one or hide the others. */
 function DuplicateDialog({
@@ -487,7 +507,7 @@ function DuplicateDialog({
                   <div className="lore-head">
                     <span className="lore-date">{item.date ?? "日付なし"}</span>
                     {state === "hidden" && <span className="badge">非表示</span>}
-                    {state === "waiting" && <span className="badge warn">保留中</span>}
+                    {state === "waiting" && <span className="badge warn">読み込んでいません</span>}
                   </div>
                 </div>
                 <div className="dup-actions">
@@ -518,9 +538,9 @@ function App() {
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<Hit[]>([]);
   const [indexReport, setIndexReport] = useState<IndexReport | null>(null);
-  // Files the user agreed to load despite errors, and files held back this session.
+  // Files the user agreed to load despite errors, and files they rejected.
   const [allowed, setAllowed] = useState<Record<string, string>>(loadAllowed);
-  const [held, setHeld] = useState<Set<string>>(new Set());
+  const [rejected, setRejected] = useState<Record<string, string>>(loadRejected);
   // Files the user hid, and the id whose files are being compared.
   const [hidden, setHidden] = useState<Set<string>>(loadHidden);
   const [duplicateId, setDuplicateId] = useState<string | null>(null);
@@ -587,7 +607,9 @@ function App() {
   const copyPaths = query.trim() ? shownHits.map((h) => h.path) : shown.map((e) => e.item.path);
   const idCounts = new Map<string, number>();
   for (const e of loaded) idCounts.set(e.item.id, (idCounts.get(e.item.id) ?? 0) + 1);
-  const undecided = waiting.filter((e) => !held.has(e.item.path));
+  // A rejection holds until the file's errors change, like an agreement does.
+  const rejectedNow = waiting.filter((e) => rejected[e.item.path] === errorSignature(e.item));
+  const undecided = waiting.filter((e) => rejected[e.item.path] !== errorSignature(e.item));
 
   useEffect(() => {
     if (dir) scan(dir);
@@ -642,11 +664,11 @@ function App() {
     for (const item of items) next[item.path] = errorSignature(item);
     saveAllowed(next);
     setAllowed(next);
-    setHeld((prev) => {
-      const rest = new Set(prev);
-      items.forEach((i) => rest.delete(i.path));
-      return rest;
-    });
+    // Loading a file after all lifts its rejection.
+    const rest = { ...rejected };
+    for (const item of items) delete rest[item.path];
+    saveRejected(rest);
+    setRejected(rest);
   }
 
   function toggleHidden(item: LoreSummary) {
@@ -656,8 +678,11 @@ function App() {
     setHidden(next);
   }
 
-  function holdBack(items: LoreSummary[]) {
-    setHeld((prev) => new Set([...prev, ...items.map((i) => i.path)]));
+  function reject(items: LoreSummary[]) {
+    const next = { ...rejected };
+    for (const item of items) next[item.path] = errorSignature(item);
+    saveRejected(next);
+    setRejected(next);
   }
 
   useEffect(() => {
@@ -692,7 +717,6 @@ function App() {
     if (typeof chosen === "string") {
       saveDir(chosen);
       setSelected(null);
-      setHeld(new Set());
       setDir(chosen);
     }
   }
@@ -783,7 +807,7 @@ function App() {
         <ViolationDialog
           entries={undecided}
           onLoadAll={() => allow(undecided.map((e) => e.item))}
-          onHold={() => holdBack(undecided.map((e) => e.item))}
+          onReject={() => reject(undecided.map((e) => e.item))}
         />
       )}
       <header className="toolbar">
@@ -868,19 +892,19 @@ function App() {
             {query.trim() ? `${shownHits.length} 件ヒット / ` : ""}
             {activeDomain ? `${activeDomain}: ` : ""}
             {shown.length} 件
-            {waiting.length > 0 && ` ・ 保留 ${waiting.length} 件`}
+            {rejectedNow.length > 0 && ` ・ 却下 ${rejectedNow.length} 件`}
             {hiddenEntries.length > 0 && ` ・ 非表示 ${hiddenEntries.length} 件`}
             {unreadable.length > 0 && ` ・ 読めなかったファイル ${unreadable.length} 件`}
           </p>
-          {waiting.length > 0 && undecided.length === 0 && (
-            <section className="rejected">
-              <h2>読み込みを保留したファイル(LoreSpec からのずれ)</h2>
+          {rejectedNow.length > 0 && (
+            <details className="hidden-files">
+              <summary>却下したファイル({rejectedNow.length} 件)</summary>
               <ul className="lore-list">
-                {waiting.map(({ item, label }) => (
-                  <HeldCard key={item.path} item={item} label={label} onLoad={() => allow([item])} />
+                {rejectedNow.map(({ item, label }) => (
+                  <RejectedCard key={item.path} item={item} label={label} onLoad={() => allow([item])} />
                 ))}
               </ul>
-            </section>
+            </details>
           )}
           {unreadable.length > 0 && (
             <section className="rejected">

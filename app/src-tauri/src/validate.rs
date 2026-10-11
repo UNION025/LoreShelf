@@ -389,15 +389,24 @@ pub fn validate(text: &str) -> Vec<Issue> {
     let lines: Vec<&str> = text.lines().collect();
     let mut c = Checker { issues: vec![] };
 
-    if lines.first().map(|l| l.trim_end()) != Some("---") {
+    // Blank lines before the opening fence do no harm here, but other tools may
+    // then not see the frontmatter, so they are reported as a warning.
+    let start = lines.iter().position(|l| !l.trim().is_empty());
+    let Some(start) = start.filter(|&i| lines[i].trim_end() == "---") else {
         c.error(1, "ファイルの先頭に --- で始まるフロントマターがありません".into());
         return c.issues;
+    };
+    if start > 0 {
+        c.warn(
+            1,
+            "ファイルの先頭に空行があります。読み込めますが、他のツールでは、フロントマターとして認識されないことがあります".into(),
+        );
     }
-    let Some(close) = lines.iter().skip(1).position(|l| l.trim_end() == "---").map(|i| i + 1) else {
-        c.error(1, "フロントマターの終わり(---)がありません".into());
+    let Some(close) = lines.iter().enumerate().skip(start + 1).find(|(_, l)| l.trim_end() == "---").map(|(i, _)| i) else {
+        c.error(start + 1, "フロントマターの終わり(---)がありません".into());
         return c.issues;
     };
-    check_frontmatter(&mut c, &lines[1..close].join("\n"), 1);
+    check_frontmatter(&mut c, &lines[start + 1..close].join("\n"), start + 1);
 
     let mut ids: HashMap<String, usize> = HashMap::new();
     let mut sections_seen: HashSet<&'static str> = HashSet::new();
@@ -718,6 +727,18 @@ mod tests {
     fn rejects_unsupported_lorespec_version() {
         let text = format!("{HEADER}{DECISION}").replace("lorespec: \"0.1\"", "lorespec: \"0.2\"");
         assert!(validate(&text).iter().any(|i| i.severity == Severity::Error && i.message.contains("未対応")));
+    }
+
+    #[test]
+    fn blank_lines_before_the_frontmatter_are_a_warning_not_an_error() {
+        let text = format!("\n\n{HEADER}{DECISION}").replace("A9", "D1");
+        let issues = validate(&text);
+        assert!(issues.iter().all(|i| i.severity == Severity::Warning), "{issues:?}");
+        assert!(issues.iter().any(|i| i.message.contains("先頭に空行")));
+        // The line numbers still point at the real lines of the file.
+        let bad = format!("\n{HEADER}{DECISION}").replace("A9", "D1").replace("usually", "usually x").replace("- **Status:** settled", "- **Status:** nonsense");
+        let line = validate(&bad).into_iter().find(|i| i.message.contains("nonsense")).map(|i| i.line).unwrap();
+        assert_eq!(bad.lines().nth(line - 1).map(str::trim_end), Some("- **Status:** nonsense"));
     }
 
     #[test]
