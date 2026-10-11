@@ -261,6 +261,17 @@ mod tests {
     }
 
     #[test]
+    fn a_leading_blank_line_does_not_make_the_file_name_the_id() {
+        let d = dirs("blank-first");
+        let src = save(&d.inbox, "LORE-5 (copy).md", &format!("\n{}", lore_text("session-real-id", "t")));
+        let r = import_file(&d.library, &src);
+        assert_eq!(r.outcome, Outcome::Imported, "{}", r.message);
+        assert_eq!(r.id, "session-real-id");
+        assert!(d.library.join("session-real-id").join("LORE.md").exists());
+        fs::remove_dir_all(&d.root).ok();
+    }
+
+    #[test]
     fn a_file_without_frontmatter_is_filed_under_its_file_name() {
         let d = dirs("plain");
         let src = save(&d.inbox, "plain-notes.md", "# just notes\n");

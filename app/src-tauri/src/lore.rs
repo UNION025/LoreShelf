@@ -51,7 +51,7 @@ pub struct LoreSummary {
 
 /// Returns the YAML block between the leading `---` fences, if any.
 fn split_frontmatter(text: &str) -> Option<&str> {
-    let text = text.trim_start_matches('\u{feff}');
+    let text = text.trim_start_matches('\u{feff}').trim_start();
     let rest = text.strip_prefix("---")?.trim_start_matches(['\r', '\n']);
     let end = rest.find("\n---")?;
     Some(&rest[..end])
@@ -65,7 +65,7 @@ pub fn read_body(path: &Path) -> Result<String, String> {
         return Err("Markdown(.md)以外のファイルは読み込めません".into());
     }
     let text = std::fs::read_to_string(path).map_err(|e| format!("読み込めません: {e}"))?;
-    let text = text.trim_start_matches('\u{feff}');
+    let text = text.trim_start_matches('\u{feff}').trim_start();
     let body = text
         .strip_prefix("---")
         .and_then(|rest| rest.find("\n---").map(|i| &rest[i + 4..]))
@@ -312,6 +312,23 @@ mod tests {
     fn domains_are_read_from_the_classification() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/valid/all-object-types.md");
         assert_eq!(inspect(&path).domains, vec!["testing"]);
+    }
+
+    #[test]
+    fn a_leading_blank_line_does_not_hide_the_frontmatter() {
+        let dir = std::env::temp_dir().join("loreshelf-test-blank-first");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("whatever-name.md");
+        let text = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../samples/valid/all-object-types.md"),
+        )
+        .unwrap();
+        std::fs::write(&f, format!("\n{text}")).unwrap();
+        let item = inspect(&f);
+        assert_eq!(item.id, "sample-all-object-types", "the id is read from the frontmatter, not the file name");
+        assert!(!validate::has_errors(&item.issues), "{:?}", item.issues);
+        assert!(read_body(&f).unwrap().starts_with("## Session Arc"));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
