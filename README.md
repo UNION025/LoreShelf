@@ -87,6 +87,10 @@ Lore C
 
 Semantic similarity does not create lineage.
 
+## Contributing
+
+Contributions are welcome. The project is currently run in Japanese; see [CONTRIBUTING.md](CONTRIBUTING.md) (English summary at the top). Never commit personal Lore.
+
 ## License
 
 MIT License. See [LICENSE](LICENSE).

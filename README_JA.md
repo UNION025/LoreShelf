@@ -263,6 +263,10 @@ LoreSpecについて詳しくは、公式リポジトリおよび仕様書を参
 
 LoreShelfはLoreSpecとは独立したプロジェクトであり、LoreSpecプロジェクトによる公式・公認アプリケーションではありません。
 
+## 参加するには
+
+参加を歓迎します。守ってほしいこと(個人のLoreを入れない、AIを使ったら正直に書く、など)は [CONTRIBUTING.md](CONTRIBUTING.md) にまとめています。
+
 ## License
 
 MIT License

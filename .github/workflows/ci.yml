@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  repo-check:
+    name: 個人の Lore が入っていないか
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sh scripts/check-repo.sh
+
+  commit-check:
+    name: AI が共同作者になっていないか
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: sh scripts/check-commits.sh ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }}
+
+  test:
+    name: テスト(${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+      - name: 型の検査
+        working-directory: app
+        run: |
+          npm ci
+          npx tsc --noEmit
+      - name: Rust のテスト
+        working-directory: app/src-tauri
+        run: cargo test
